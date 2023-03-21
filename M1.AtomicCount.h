@@ -1,0 +1,134 @@
+#ifndef ATOMIC_COUNT
+#define ATOMIC_COUNT
+
+#include "Utility.h"
+
+#if defined(__SUNPRO_CC) ||  defined(__TOS_AIX__)
+#include "Mutex.h"
+#endif
+
+namespace FIX
+{
+  /// Atomic count class - consider using interlocked functions
+
+#ifdef ENABLE_BOOST_ATOMIC_COUNT
+
+#include <boost/smart_ptr/detail/atomic_count.hpp>
+typedef boost::detail::atomic_count atomic_count;
+
+#elif _MSC_VER 
+
+  //atomic counter based on interlocked functions for Win32
+  class atomic_count
+  {
+  public:
+    explicit atomic_count( long v ): m_counter( v )
+    {
+    }
+
+    long operator++()
+    {
+      return ::InterlockedIncrement( &m_counter );
+    }
+
+    long operator--()
+    {
+      return ::InterlockedDecrement( &m_counter );
+    }
+
+    operator long() const
+    {
+      return ::InterlockedExchangeAdd(const_cast<long volatile *>( &m_counter ), 0 );
+    }
+
+  private:
+
+    atomic_count( atomic_count const & );
+    atomic_count & operator=( atomic_count const & );
+
+    long volatile m_counter;
+  };
+
+#elif defined(__SUNPRO_CC) ||  defined(__TOS_AIX__)
+
+// general purpose atomic counter using mutexes
+class atomic_count
+{
+public:
+  explicit atomic_count( long v ): m_counter( v )
+  {
+  }
+
+  long operator++()
+  {
+    Locker _lock(m_mutex);
+    return ++m_counter;
+  }
+
+  long operator--()
+  {
+    Locker _lock(m_mutex);
+    return --m_counter;
+  }
+
+  operator long() const
+  {
+    return static_cast<long const volatile &>( m_counter );
+  }
+
+private:
+
+  atomic_count( atomic_count const & );
+  atomic_count & operator=( atomic_count const & );
+
+  Mutex m_mutex;
+  long m_counter;
+};
+
+#else
+
+
+  class atomic_count
+  {
+  public:
+
+    explicit atomic_count( long v ) : value_(static_cast<int>(v)) {}
+
+    long operator++()
+    {
+      return atomic_exchange_and_add( &value_, 1 ) + 1;
+    }
+
+    long operator--()
+    {
+      return atomic_exchange_and_add( &value_, -1 ) - 1;
+    }
+
+    operator long() const
+    {
+      return atomic_exchange_and_add( &value_, 0 );
+    }
+
+  private:
+
+    atomic_count( atomic_count const & );
+    atomic_count & operator=( atomic_count const & );
+
+    mutable int value_;
+
+  private:
+
+    static int atomic_exchange_and_add(int * pw, int dv)
+    {
+       int r = *pw;
+       *pw += dv;
+       return r;
+
+    }
+  };
+
+#endif
+
+}
+
+#endif
